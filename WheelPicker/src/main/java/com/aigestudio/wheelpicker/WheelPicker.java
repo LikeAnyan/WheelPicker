@@ -9,6 +9,7 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Region;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Handler;
 import android.text.TextUtils;
@@ -20,7 +21,8 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.widget.Scroller;
 
-import java.util.ArrayList;
+import androidx.core.content.res.ResourcesCompat;
+
 import java.util.Arrays;
 import java.util.List;
 
@@ -31,9 +33,9 @@ import java.util.List;
  *
  * @author AigeStudio 2015-12-12
  * @author AigeStudio 2016-06-17
- *         更新项目结构
- *         <p>
- *         New project structure
+ * 更新项目结构
+ * <p>
+ * New project structure
  * @version 1.1.0
  */
 public class WheelPicker extends View implements IDebug, IWheelPicker, Runnable {
@@ -280,10 +282,9 @@ public class WheelPicker extends View implements IDebug, IWheelPicker, Runnable 
      */
     private boolean isForceFinishScroll;
 
-    /**
-     * Font typeface path from assets
-     */
-    private String fontPath;
+    private Drawable curtainDrawable;
+
+    private int itemPaddingVertical;
 
     private boolean isDebug;
 
@@ -321,7 +322,10 @@ public class WheelPicker extends View implements IDebug, IWheelPicker, Runnable 
         hasAtmospheric = a.getBoolean(R.styleable.WheelPicker_wheel_atmospheric, false);
         isCurved = a.getBoolean(R.styleable.WheelPicker_wheel_curved, false);
         mItemAlign = a.getInt(R.styleable.WheelPicker_wheel_item_align, ALIGN_CENTER);
-        fontPath = a.getString(R.styleable.WheelPicker_wheel_font_path);
+        curtainDrawable = a.getDrawable(R.styleable.WheelPicker_curtainDrawable);
+        itemPaddingVertical = a.getDimensionPixelSize(R.styleable.WheelPicker_itemPaddingVertical, 0);
+
+        int fontFamilyId = a.getResourceId(R.styleable.WheelPicker_android_fontFamily, 0);
         a.recycle();
 
         // 可见数据项改变后更新与之相关的参数
@@ -331,8 +335,8 @@ public class WheelPicker extends View implements IDebug, IWheelPicker, Runnable 
         mPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG | Paint.LINEAR_TEXT_FLAG);
         mPaint.setTextSize(mItemTextSize);
 
-        if (fontPath != null) {
-            Typeface typeface = Typeface.createFromAsset(context.getAssets(), fontPath);
+        if (fontFamilyId != 0) {
+            Typeface typeface = ResourcesCompat.getFont(context, fontFamilyId);
             setTypeface(typeface);
         }
 
@@ -422,7 +426,7 @@ public class WheelPicker extends View implements IDebug, IWheelPicker, Runnable 
         // 计算原始内容尺寸
         // Correct sizes of original content
         int resultWidth = mTextMaxWidth;
-        int resultHeight = mTextMaxHeight * mVisibleItemCount + mItemSpace * (mVisibleItemCount - 1);
+        int resultHeight = (mTextMaxHeight + itemPaddingVertical) * mVisibleItemCount + mItemSpace * (mVisibleItemCount - 1);
 
         // 如果开启弯曲效果则需要重新计算弯曲后的尺寸
         // Correct view sizes again if curved is enable
@@ -540,7 +544,7 @@ public class WheelPicker extends View implements IDebug, IWheelPicker, Runnable 
     protected void onDraw(Canvas canvas) {
         if (null != mOnWheelChangeListener)
             mOnWheelChangeListener.onWheelScrolled(mScrollOffsetY);
-        if(mData.size() == 0)
+        if (mData.size() == 0)
             return;
         int drawnDataStartPos = -mScrollOffsetY / mItemHeight - mHalfDrawnItemCount;
         for (int drawnDataPos = drawnDataStartPos + mSelectedItemPosition,
@@ -657,9 +661,13 @@ public class WheelPicker extends View implements IDebug, IWheelPicker, Runnable 
         // 是否需要绘制幕布
         // Need to draw curtain or not
         if (hasCurtain) {
-            mPaint.setColor(mCurtainColor);
-            mPaint.setStyle(Paint.Style.FILL);
-            canvas.drawRect(mRectCurrentItem, mPaint);
+            if (curtainDrawable != null) {
+                curtainDrawable.setBounds(mRectCurrentItem.left, mRectCurrentItem.top - itemPaddingVertical, mRectCurrentItem.right, mRectCurrentItem.bottom + itemPaddingVertical);
+                curtainDrawable.draw(canvas);
+            }
+//            mPaint.setColor(mCurtainColor);
+//            mPaint.setStyle(Paint.Style.FILL);
+//            canvas.drawRect(mRectCurrentItem, mPaint);
         }
         // 是否需要绘制指示器
         // Need to draw indicator or not
@@ -856,29 +864,29 @@ public class WheelPicker extends View implements IDebug, IWheelPicker, Runnable 
     }
 
     public void setSelectedItemPosition(int position, final boolean animated) {
-      isTouchTriggered = false;
-      if (animated && mScroller.isFinished()) { // We go non-animated regardless of "animated" parameter if scroller is in motion
-        int length = getData().size();
-        int itemDifference = position - mCurrentItemPosition;
-        if (itemDifference == 0)
-          return;
-        if (isCyclic && Math.abs(itemDifference) > (length / 2)) { // Find the shortest path if it's cyclic
-          itemDifference += (itemDifference > 0) ? -length : length;
+        isTouchTriggered = false;
+        if (animated && mScroller.isFinished()) { // We go non-animated regardless of "animated" parameter if scroller is in motion
+            int length = getData().size();
+            int itemDifference = position - mCurrentItemPosition;
+            if (itemDifference == 0)
+                return;
+            if (isCyclic && Math.abs(itemDifference) > (length / 2)) { // Find the shortest path if it's cyclic
+                itemDifference += (itemDifference > 0) ? -length : length;
+            }
+            mScroller.startScroll(0, mScroller.getCurrY(), 0, (-itemDifference) * mItemHeight);
+            mHandler.post(this);
+        } else {
+            if (!mScroller.isFinished())
+                mScroller.abortAnimation();
+            position = Math.min(position, mData.size() - 1);
+            position = Math.max(position, 0);
+            mSelectedItemPosition = position;
+            mCurrentItemPosition = position;
+            mScrollOffsetY = 0;
+            computeFlingLimitY();
+            requestLayout();
+            invalidate();
         }
-        mScroller.startScroll(0, mScroller.getCurrY(), 0, (-itemDifference) * mItemHeight);
-        mHandler.post(this);
-      } else {
-        if (!mScroller.isFinished())
-          mScroller.abortAnimation();
-        position = Math.min(position, mData.size() - 1);
-        position = Math.max(position, 0);
-        mSelectedItemPosition = position;
-        mCurrentItemPosition = position;
-        mScrollOffsetY = 0;
-        computeFlingLimitY();
-        requestLayout();
-        invalidate();
-      }
     }
 
     @Override
@@ -1121,7 +1129,7 @@ public class WheelPicker extends View implements IDebug, IWheelPicker, Runnable 
      * 滚轮选择器Item项被选中时监听接口
      *
      * @author AigeStudio 2016-06-17
-     *         新项目结构
+     * 新项目结构
      * @version 1.1.0
      */
     public interface OnItemSelectedListener {
@@ -1140,9 +1148,9 @@ public class WheelPicker extends View implements IDebug, IWheelPicker, Runnable 
      * 滚轮选择器滚动时监听接口
      *
      * @author AigeStudio 2016-06-17
-     *         新项目结构
-     *         <p>
-     *         New project structure
+     * 新项目结构
+     * <p>
+     * New project structure
      * @since 2016-06-17
      */
     public interface OnWheelChangeListener {
